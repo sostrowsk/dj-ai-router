@@ -1,7 +1,9 @@
 """Smoke tests for the W3-L3 moves: cached_llm + encoders live in ai_router.
 
-`ai_agents/utils/cached_llm.py` and `scribe/encoders.py` are deprecated shims
-that re-export the identical objects and emit a DeprecationWarning on import.
+`ai_agents/utils/cached_llm.py` is a deprecated shim that re-exports the
+identical objects and emits a DeprecationWarning on import. The former
+`scribe/encoders.py` shim was removed with the dj-rag-db extraction (W6) —
+scribe imports `ai_router.encoders` directly.
 """
 
 import importlib
@@ -53,17 +55,6 @@ class TestEncodersMove:
         module = importlib.import_module("ai_router.encoders")
         assert hasattr(module, "BaseEncoder")
         assert hasattr(module, "AzureOpenAIEncoder")
-
-    def test_legacy_scribe_shim_reexports_identical_objects(self):
-        import ai_router.encoders as new
-        import scribe.encoders as legacy
-
-        assert legacy.BaseEncoder is new.BaseEncoder
-        assert legacy.AzureOpenAIEncoder is new.AzureOpenAIEncoder
-
-    def test_legacy_scribe_shim_emits_deprecation_warning(self):
-        caught = _import_fresh_with_warnings("scribe.encoders")
-        assert any(issubclass(w.category, DeprecationWarning) for w in caught)
 
 
 class TestLLMLogProjectFK:
