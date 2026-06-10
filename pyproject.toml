@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "dj-ai-router"
+version = "0.1.0"
+description = "Unified multi-provider LLM client factory for Django: Anthropic (Bedrock/Vertex), Azure OpenAI and Google Gemini with prompt caching, streaming, retry handling and per-call DB logging (LLMLog)."
+authors = ["Stefan Ostrowski <ostrowski@addvendo.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{ include = "ai_router" }]
+
+[tool.poetry.dependencies]
+python = ">=3.13,<3.14"
+django = "^5"
+pydantic = "^2"
+anthropic = { extras = ["vertex", "bedrock"], version = "^0.84" }
+google-genai = "^1"
+google-auth = "^2"
+langchain-openai = "^1"
+openai = "^2"
+numpy = "^2"
+bleach = "^6"
+markdown = "^3"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
