@@ -57,6 +57,20 @@ class TestEncodersMove:
         assert hasattr(module, "AzureOpenAIEncoder")
 
 
+class TestLocalClient:
+    def test_local_client_importable_from_ai_router(self):
+        module = importlib.import_module("ai_router.local_client")
+        assert hasattr(module, "CachedLocalClient")
+        assert hasattr(module, "LOCAL_MODEL_CONFIG")
+        assert hasattr(module, "resolve_local_config")
+
+    def test_get_llm_client_exposes_local_in_union(self):
+        import ai_router.client as client_module
+        from ai_router.local_client import CachedLocalClient
+
+        assert client_module.CachedLocalClient is CachedLocalClient
+
+
 class TestLLMLogProjectFK:
     def test_project_fk_targets_project_model_by_default(self):
         """AI_ROUTER_PROJECT_MODEL default keeps the FK on project.Project."""

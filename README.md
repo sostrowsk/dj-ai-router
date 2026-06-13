@@ -13,11 +13,16 @@ stay `ai_router`).
 
 ## Installation
 
-Installed by the host project as a Poetry git dependency (single lock
+Installed by the host project as a uv git dependency (single lock
 authority lives in the host):
 
 ```toml
-[tool.poetry.dependencies]
+[project]
+dependencies = [
+    "dj-ai-router",
+]
+
+[tool.uv.sources]
 dj-ai-router = { git = "ssh://git@github.com/sostrowsk/dj-ai-router.git", branch = "main" }
 ```
 
@@ -45,12 +50,81 @@ for chunk in client.stream(system_prompt, user_prompt):
 result, parsed = client.invoke_with_pdf_cache(pdf_path, system_prompt, user_prompt)
 ```
 
-Model routing: `get_cached_client(model)` picks `CachedGeminiClient` for
-models in `VERTEX_MODEL_CONFIG` with `engine == "gemini"`, otherwise
+Model routing: `get_cached_client(model)` picks `CachedLocalClient` for
+models in `LOCAL_MODEL_CONFIG` (local vllm-mlx), then `CachedGeminiClient`
+for models in `VERTEX_MODEL_CONFIG` with `engine == "gemini"`, otherwise
 `CachedAnthropicClient` (Bedrock, or Vertex when `GCP_PROJECT_ID` is set).
 Per-provider config dicts: `ai_router.bedrock_client.BEDROCK_MODEL_CONFIG`,
 `ai_router.azure_client.AZURE_MODEL_CONFIG`,
-`ai_router.vertex_client.VERTEX_MODEL_CONFIG`.
+`ai_router.vertex_client.VERTEX_MODEL_CONFIG`,
+`ai_router.local_client.LOCAL_MODEL_CONFIG`.
+
+### Local models (vllm-mlx / OpenAI-compatible)
+
+`CachedLocalClient` talks to a local OpenAI-compatible server over the
+`openai` SDK (`/v1/chat/completions`). Built-in aliases in
+`LOCAL_MODEL_CONFIG`:
+
+| Alias | Served model | Default base_url |
+| --- | --- | --- |
+| `qwen3.6-35b-a3b` | `unsloth/Qwen3.6-35B-A3B-MLX-8bit` | `http://localhost:8001/v1` |
+| `gemma-4-12b-it` | `mlx-community/gemma-4-12B-it-8bit` | `http://localhost:8002/v1` |
+
+```bash
+vllm-mlx serve unsloth/Qwen3.6-35B-A3B-MLX-8bit --port 8001 \
+  --continuous-batching --reasoning-parser qwen3 \
+  --enable-auto-tool-choice --tool-call-parser qwen --max-request-tokens 131072
+vllm-mlx serve mlx-community/gemma-4-12B-it-8bit --port 8002 --max-request-tokens 131072
+```
+
+```python
+client = get_llm_client("qwen3.6-35b-a3b")
+result, parsed = client.invoke(system_prompt, user_prompt, output_schema=MySchema)
+for chunk in client.stream(system_prompt, user_prompt):
+    ...
+```
+
+Text-only: `invoke` / `stream` / `invoke_with_cache` / `invoke_raw_cached`
+work; `invoke_with_pdf_cache` / `invoke_with_pdf_tool` raise
+`NotImplementedError` (local servers take no PDF document blocks). No prompt
+cache — `cache_*` token fields are always 0. Reasoning models (Qwen3) expose
+their thoughts in `reasoning_content`; the client returns only the final
+`content` and drops reasoning from the streamed text.
+
+#### Tool calling
+
+For servers started with `--enable-auto-tool-choice --tool-call-parser ...`,
+`CachedLocalClient` exposes OpenAI-style function calling:
+
+```python
+from ai_router.local_client import function_tool, tool_result_message
+
+client = get_llm_client("qwen3.6-35b-a3b")
+
+# 1. Forced single tool → structured dict (analogue of invoke_with_pdf_tool).
+#    Raises ForcedToolUseError if the model emits no matching tool call.
+result, args = client.invoke_with_tool(
+    system_prompt, user_prompt,
+    tool_name="extract_invoice",
+    tool_description="Extract invoice fields",
+    tool_input_schema={"type": "object", "properties": {...}, "required": [...]},
+)
+
+# 2. Multi-tool agentic loop (tool_choice "auto"|"required"|"none"|forced).
+tools = [function_tool("get_weather", "Current weather", WEATHER_SCHEMA)]
+messages = [{"role": "user", "content": "weather in Hamburg?"}]
+out = client.invoke_tools(system_prompt, messages=messages, tools=tools)
+for call in out.tool_calls:          # ToolCall(id, name, arguments, arguments_raw)
+    answer = run(call.name, call.arguments)
+    messages += [out.assistant_message, tool_result_message(call.id, answer)]
+out = client.invoke_tools(system_prompt, messages=messages, tools=tools)  # continue
+```
+
+`tools` entries may be full OpenAI dicts or the shorthand
+`{name, description, parameters}`. `invoke_tools` returns a `ToolCallResult`
+(`content`, `tool_calls`, `finish_reason`, `usage`, `assistant_message`).
+Tool calling is non-streaming. The Anthropic client's forced-tool path is
+`invoke_with_pdf_tool` (PDF + forced `tool_choice`).
 
 ## Settings catalog
 
@@ -83,6 +157,10 @@ Per-provider config dicts: `ai_router.bedrock_client.BEDROCK_MODEL_CONFIG`,
 | `AWS_BEDROCK_REGION` | `"eu-central-1"` | AnthropicBedrock region |
 | `AWS_BEDROCK_ACCESS_KEY_ID` | `""` | empty → ambient AWS credentials |
 | `AWS_BEDROCK_SECRET_ACCESS_KEY` | `""` | empty → ambient AWS credentials |
+| `AI_ROUTER_LOCAL_MODELS` | `{}` | dict keyed by alias; overrides/extends `LOCAL_MODEL_CONFIG` (e.g. change `base_url`/port, add a new local model) |
+| `AI_ROUTER_LOCAL_BASE_URL` | `"http://localhost:8001/v1"` | fallback base_url when an alias has none |
+| `AI_ROUTER_LOCAL_API_KEY` | `"local"` | bearer key for the local server (most ignore it; the SDK just needs non-empty) |
+| `AI_ROUTER_LOCAL_MAX_OUTPUT_TOKENS` | `4096` | default `max_tokens` for `CachedLocalClient` |
 
 ### Referenced indirectly via `AZURE_MODEL_CONFIG`
 
@@ -138,8 +216,14 @@ pytest --pyargs ai_router.tests
 
 ## Development workflow
 
-- Local override in the host:
-  `poetry run pip install -e ../dj-ai-router`
-  (note: a later `poetry install` in the host resets to the locked git ref).
+- Local override in the host: add an editable path source in the host
+  `pyproject.toml` (or `uv pip install -e ../dj-ai-router` into the host
+  venv; note a later `uv sync` in the host resets to the locked git ref):
+
+  ```toml
+  [tool.uv.sources]
+  dj-ai-router = { path = "../dj-ai-router", editable = true }
+  ```
+
 - Release: commit + push to `main`, then in the host
-  `poetry update dj-ai-router`.
+  `uv lock --upgrade-package dj-ai-router` (followed by `uv sync`).

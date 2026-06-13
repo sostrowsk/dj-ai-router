@@ -1,8 +1,28 @@
 # dj-ai-router
 
 Django app package `ai_router` (app label, import path, DB tabellen bleiben
-`ai_router`). Host-Projekte pinnen dieses Repo als Poetry-git-Dependency auf
-`main` — jeder Push auf main ist sofort releasebar.
+`ai_router`). Host-Projekte pinnen dieses Repo als uv-git-Dependency
+(`[tool.uv.sources]`) auf `main` — jeder Push auf main ist sofort
+releasebar. Build-Backend: hatchling (PEP 621).
+
+## Provider-Clients
+
+`get_cached_client(model)` (in `cached_llm.py`) routet anhand von Config-
+Dicts auf den passenden Client:
+
+- **Bedrock/Vertex** (`CachedAnthropicClient`) — Anthropic Claude. Forced-
+  tool-Pfad: `invoke_with_pdf_tool` (PDF + `tool_choice`).
+- **Vertex/Gemini** (`CachedGeminiClient`) — `VERTEX_MODEL_CONFIG`,
+  `engine == "gemini"`.
+- **Lokal** (`CachedLocalClient`, `local_client.py`) — OpenAI-kompatible
+  vllm-mlx-Server via `openai`-SDK. `LOCAL_MODEL_CONFIG` (per
+  `settings.AI_ROUTER_LOCAL_MODELS` override-/erweiterbar). Text-only
+  (`invoke`/`stream`/`invoke_with_cache`/`invoke_raw_cached`); PDF-Pfade
+  raisen `NotImplementedError`. Tool-Calling (OpenAI function-calling):
+  `invoke_with_tool` (forced single tool → dict) und `invoke_tools`
+  (auto/required, agentic loop). Kein Prompt-Cache → `cache_*` immer 0;
+  Reasoning-Modelle (Qwen3) liefern `reasoning_content` separat, nur
+  `content` wird zurueckgegeben.
 
 ## TDD-Regeln (Pflicht)
 

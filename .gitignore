@@ -7,5 +7,6 @@ build/
 .coverage
 .venv/
 venv/
+uv.lock
 .idea/
 .vscode/

@@ -1713,13 +1713,20 @@ Beachte dabei:
             raise
 
 
-def get_cached_client(model: str = None) -> CachedAnthropicClient | CachedGeminiClient:
-    """Factory: returns the right cached client based on model engine."""
+def get_cached_client(model: str = None):
+    """Factory: returns the right cached client based on model engine.
+
+    Routing order: local OpenAI-compatible models (vllm-mlx) first, then
+    Gemini (Vertex), else Anthropic (Bedrock/Vertex)."""
+    from ai_router.local_client import CachedLocalClient, resolve_local_config
     from ai_router.vertex_client import VERTEX_MODEL_CONFIG
 
     model = model or settings.DEFAULT_MODEL_BEDROCK
-    config = VERTEX_MODEL_CONFIG.get(model)
 
+    if resolve_local_config(model) is not None:
+        return CachedLocalClient(model=model)
+
+    config = VERTEX_MODEL_CONFIG.get(model)
     if config and config["engine"] == "gemini":
         return CachedGeminiClient(model=model)
     return CachedAnthropicClient(model=model)

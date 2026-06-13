@@ -15,14 +15,15 @@ Usage:
 """
 
 from ai_router.cached_llm import CachedAnthropicClient, CachedGeminiClient, get_cached_client
+from ai_router.local_client import CachedLocalClient
 
 
-def get_llm_client(model: str = None) -> CachedAnthropicClient | CachedGeminiClient:
+def get_llm_client(model: str = None) -> CachedAnthropicClient | CachedGeminiClient | CachedLocalClient:
     """
     Get an LLM client for the given model.
 
     Drop-in replacement for the old LangChain-based get_chat_client().
-    Returns a CachedAnthropicClient or CachedGeminiClient with:
+    Returns a CachedAnthropicClient, CachedGeminiClient or CachedLocalClient with:
     - invoke(system_prompt, user_prompt, output_schema=None)
     - stream(system_prompt, user_prompt)
     - invoke_with_cache(document_content, document_name, extraction_prompt, ...)
